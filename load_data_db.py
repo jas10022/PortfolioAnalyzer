@@ -343,12 +343,12 @@ logging.info("\nStarting Yahoo link processing")
 # look only as far as yesterday's close date, in case closing price is not yet available when running today
 dt_now = date.today() - timedelta(days=1)
 dt_now = datetime(dt_now.year, dt_now.month, dt_now.day, tzinfo=timezone.utc)
-dt_20000101 = datetime(2000, 1, 1, tzinfo=timezone.utc)
+dt_start = datetime(2010, 1, 1, tzinfo=timezone.utc)
 
-timestmp1 = int(dt_20000101.timestamp())
+timestmp1 = int(dt_start.timestamp())
 timestmp2 = int(dt_now.timestamp())
 
-logging.info(f"\nYahoo period1 = {timestmp1} corresponds to date {dt_20000101}")
+logging.info(f"\nYahoo period1 = {timestmp1} corresponds to date {dt_start}")
 logging.info(f"\nYahoo period2 = {timestmp2} corresponds to date {dt_now}")
 
 #=========================================================================================
@@ -384,7 +384,7 @@ logging.info(f"\nRead {df_Yahoo_links_good_sectors_dates20000101.shape[0]} rows.
 #=========================================================================================
 
 # Create a series of dates from Jan 4, 2000 to Dec 31, 2020
-idxDates = pd.Series(pd.date_range(start=dt_20000101.date(), end=date(dt_now.year, dt_now.month, dt_now.day)))
+idxDates = pd.Series(pd.date_range(start=dt_start.date(), end=date(dt_now.year, dt_now.month, dt_now.day)))
 # Create an empty dataframe with just the index (= the series of dates)
 dfAllDates = pd.DataFrame(index=idxDates)
 # Rename the index
