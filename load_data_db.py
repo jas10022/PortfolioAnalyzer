@@ -458,8 +458,11 @@ logging.info("\nJoining all columns of the downloaded securities into a single d
 for df in dict_dfYahooSecurities.values():
     dfAllDates = dfAllDates.join(df)
 
+# Before writing out our dataframe to SQLite database, drop any rows that contain only NULL values
+df_trading_dates = dfAllDates.drop(dfAllDates[dfAllDates.any(axis=1) == False].index, axis=0)
+
 logging.info(f"\nSaving joined dataframe to table 'securities_by_date' in database 'output/team122project.sqlite3'")
-dfAllDates.to_sql(name='securities_by_date', con=conn, if_exists='replace', index=True)
+df_trading_dates.to_sql(name='securities_by_date', con=conn, if_exists='replace', index=True)
 
 """
 outputfilename = f"output/database_partial_{len(dict_dfYahooSecurities.keys())}_local_currency.csv"
