@@ -321,18 +321,50 @@ else:
 
     df_Yahoo_links_good_sectors_dates['Market_Cap'] = pd.to_numeric(df_Yahoo_links_good_sectors_dates['Market_Cap'].str.replace(',', ''))
 
-    df_Yahoo_links_good_sectors_dates20000101 = df_Yahoo_links_good_sectors_dates[df_Yahoo_links_good_sectors_dates['IPO_Date'] < '2000-01-01']
+    df_Yahoo_links_good_sectors_dates_start = df_Yahoo_links_good_sectors_dates[df_Yahoo_links_good_sectors_dates['IPO_Date'] < '2010-01-01']
 
-    logging.info(f"\nAfter filtering data to use only good industry sectors and valid IPO dates, the number of securities available is: {df_Yahoo_links_good_sectors_dates20000101.shape[0]}")
+    logging.info(f"\nAfter filtering data to use only good industry sectors and valid IPO dates, the number of securities available is: {df_Yahoo_links_good_sectors_dates_start.shape[0]}")
 
     # Write the master dataframe to a SQLite3 database
-    df_Yahoo_links_good_sectors_dates20000101.to_sql(name='yahoo_links', con=conn, if_exists='replace', index=False)
+    df_Yahoo_links_good_sectors_dates_start.to_sql(name='yahoo_links', con=conn, if_exists='replace', index=False)
 
-    logging.info(f"Table 'yahoo_links' created in database 'output/team122project.sqlite3' with {df_Yahoo_links_good_sectors_dates20000101.shape[0]} rows")
+    logging.info(f"Table 'yahoo_links' created in database 'output/team122project.sqlite3' with {df_Yahoo_links_good_sectors_dates_start.shape[0]} rows")
 
 # ==================================================================================================================================
 # Part 2: Use the Yahoo links we created in Part 1 to download the historical prices
 # ==================================================================================================================================
+
+# First ensure that the column "" has been added to the table definition
+
+cur.execute("SELECT EXISTS (SELECT * FROM sqlite_master WHERE tbl_name = 'yahoo_links' AND sql LIKE '%last_update%');")
+col_last_update_exists, = cur.fetchone()
+if col_last_update_exists == 0:
+    cur.execute("ALTER TABLE yahoo_links ADD COLUMN last_update timestamp DEFAULT NULL")
+if col_last_update_exists == 0:
+    cur.execute("UPDATE yahoo_links SET last_update = DATETIME('1970-01-01 00:00:00')")
+
+# Next ensure that the yahoo_links table has the required indexes
+
+cur.execute("DROP INDEX IF EXISTS ix_yahoo_links_IPO_Date;")
+#res1 = cur.fetchmany()
+#print(res1)
+cur.execute("CREATE INDEX ix_yahoo_links_IPO_Date ON yahoo_links (IPO_Date);")
+#res1 = cur.fetchmany()
+#print(res1)
+
+cur.execute("DROP INDEX IF EXISTS ix_yahoo_links_Category3;")
+#res2 = cur.fetchmany()
+#print(res2)
+cur.execute("CREATE INDEX ix_yahoo_links_Category3 ON yahoo_links (Category3);")
+#res2 = cur.fetchmany()
+#print(res2)
+
+cur.execute("DROP INDEX IF EXISTS ix_yahoo_links_GICS_Sector;")
+#res3 = cur.fetchmany()
+#print(res3)
+cur.execute("CREATE INDEX ix_yahoo_links_GICS_Sector ON yahoo_links (GICS_Sector);")
+#res3 = cur.fetchmany()
+#print(res3)
 
 logging.info("\nStarting Yahoo link processing")
 
@@ -377,13 +409,22 @@ datecolumns = ['IPO_Date']
 
 # Read the links from our SQLite3 database
 
-df_Yahoo_links_good_sectors_dates20000101 = pd.read_sql('select * from yahoo_links', con=conn, dtype=datatypes, parse_dates=datecolumns) #, date_format='mm/dd/yyyy')
+time_22hours_ago = (datetime.utcnow() - timedelta(hours=22)).isoformat(sep=" ", timespec="seconds")
 
-logging.info(f"\nRead {df_Yahoo_links_good_sectors_dates20000101.shape[0]} rows.\n{df_Yahoo_links_good_sectors_dates20000101.head()}")
+df_Yahoo_links_good_sectors_dates_start = pd.read_sql('select * from yahoo_links', con=conn, dtype=datatypes, parse_dates=datecolumns) #, date_format='mm/dd/yyyy')
+# We want to read only those securities that were not updated within the last 22 hours, unlike the statement above that retrieves all securities
+#df_Yahoo_links_good_sectors_dates_start = pd.read_sql(f"SELECT * FROM yahoo_links WHERE last_update < '{time_22hours_ago}'", con=conn, dtype=datatypes, parse_dates=datecolumns)
+
+list_needs_updating = df_Yahoo_links_good_sectors_dates_start[df_Yahoo_links_good_sectors_dates_start["last_update"] < time_22hours_ago].index.to_list()
+
+# df_Yahoo_links_good_sectors_dates_remaining = df_Yahoo_links_good_sectors_dates_start.copy(deep=True)
+
+logging.info(f"\nRead {df_Yahoo_links_good_sectors_dates_start.shape[0]} rows.\n{df_Yahoo_links_good_sectors_dates_start.head()}")
+#logging.info(f"\nRead {df_Yahoo_links_good_sectors_dates_remaining.shape[0]} rows.\n{df_Yahoo_links_good_sectors_dates_remaining.head()}")
 
 #=========================================================================================
 
-# Create a series of dates from Jan 4, 2000 to Dec 31, 2020
+# Create a series of dates from the start date of our project to today's date
 idxDates = pd.Series(pd.date_range(start=dt_start.date(), end=date(dt_now.year, dt_now.month, dt_now.day)))
 # Create an empty dataframe with just the index (= the series of dates)
 dfAllDates = pd.DataFrame(index=idxDates)
@@ -398,79 +439,133 @@ logging.info(f"\nLast 10 dates in dataframe dfAllDates:\n{dfAllDates.tail(10)}")
 # This is where the Yahoo downloads actually occur - may need to use random proxy URLs to get past Yahoo's request limits
 # -----------------------------------------------------------------------------------------------------------------------
 
-loopUntil = df_Yahoo_links_good_sectors_dates20000101.shape[0]
+
+loopThrough = list_needs_updating
+#loopUntil = df_Yahoo_links_good_sectors_dates_start.shape[0]
+#loopUntil = df_Yahoo_links_good_sectors_dates_remaining.shape[0]
 ####################################################################
 ####################################################################
 ####################################################################
-loopUntil = 4 # Try with a smaller set of data, instead of all files
+#loopUntil = 4 # Try with a smaller set of data, instead of all files
+#loopThrough = list_needs_updating[:4]
 ####################################################################
 ####################################################################
 ####################################################################
-dict_dfYahooSecurities = {}
+#dict_dfYahooSecurities = {}
 
-with requests.session():
-    header = {
-        'Connection': 'keep-alive',
-        'Expires': '-1',
-        'Upgrade-Insecure-Requests': '1',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) \
-        AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.99 Safari/537.36'
-    }
+while_iter = 1
 
-    for i in range(loopUntil):
-        symbol, link = df_Yahoo_links_good_sectors_dates20000101.iloc[i][["Yahoo_Symbol", "Yahoo_Listings_Link"]]
+while len(loopThrough) > 0:
 
-        # Replace the placeholders in our link with actual timestamps
-        link = link.replace('{timestmp1}', str(timestmp1)).replace('{timestmp2}', str(timestmp2))
+    dict_dfYahooSecurities = {}
 
-        #proxy_url = random.choice(lst_good_proxies_url)
-        #logging.info(f"\nAttempting download historical prices for symbol '{symbol}'' from {link} using proxy {proxy_url}")
-        logging.info(f"\nAttempting download historical prices for symbol '{symbol}'' from {link}")
-        try:
-            #dict_dfYahooSecurities[symbol] = pd.read_csv(link, usecols=["Date", "Adj Close"], parse_dates=True, infer_datetime_format=True)
-            # We cannot use read_csv directly, because Yahoo will block our requests if we issue too many from the same IP address, so...
-            #response = requests.get(link, proxies={"http": proxy_url, "https": proxy_url})
-            response = requests.get(link, headers=header)
-            #logging.info(f"\n{response.text[:200]}")
-            #logging.info(f"\n{response.text[-200:]}")
-            dict_dfYahooSecurities[symbol] = pd.read_csv(io.StringIO(response.text), usecols=["Date", "Adj Close"])
-            # Convert the Date column to the correct data type
-            dict_dfYahooSecurities[symbol]['Date'] = pd.to_datetime(dict_dfYahooSecurities[symbol]['Date'], utc=False) #, utc=True
-            dict_dfYahooSecurities[symbol].columns = ["Date", symbol]
-            dict_dfYahooSecurities[symbol].set_index('Date', drop=True, inplace=True)
+    logging.info(f"\nOn 'while' iteration {while_iter}, number of securities to update = {len(loopThrough)}")
+    logging.info(f"\n{','.join([str(x) for x in loopThrough])}")
 
-            # We don't need to save to CSV since we write directly to table in SQLite3 database now
-            """
-            outputfilename =f"output/history_security_{symbol}.csv"
-            with open(outputfilename, "w") as filehandle:
-                #dict_dfYahooSecurities[symbol].to_csv(filehandle, index=False, lineterminator = '\r', encoding='utf-8-sig')
-                dict_dfYahooSecurities[symbol].to_csv(filehandle, index=False, lineterminator = '\n', encoding='utf-8')
-            if not filehandle.closed:
-                filehandle.close()
-            filehandle = None
-            """
-        except Exception as e:
-            logging.exception(str(e))
-            continue
+    with requests.session():
+        header = {
+            'Connection': 'keep-alive',
+            'Expires': '-1',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) \
+            AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.99 Safari/537.36'
+        }
 
-logging.info("\nJoining all columns of the downloaded securities into a single dataframe")
+        for i in loopThrough: # range(loopUntil):
+            #symbol, link = df_Yahoo_links_good_sectors_dates_start.iloc[i][["Yahoo_Symbol", "Yahoo_Listings_Link"]]
+            symbol, link = df_Yahoo_links_good_sectors_dates_start.loc[i][["Yahoo_Symbol", "Yahoo_Listings_Link"]]
 
-for df in dict_dfYahooSecurities.values():
-    dfAllDates = dfAllDates.join(df)
+            # Replace the placeholders in our link with actual timestamps
+            link = link.replace('{timestmp1}', str(timestmp1)).replace('{timestmp2}', str(timestmp2))
 
-# Before writing out our dataframe to SQLite database, drop any rows that contain only NULL values
-df_trading_dates = dfAllDates.drop(dfAllDates[dfAllDates.any(axis=1) == False].index, axis=0)
+            #proxy_url = random.choice(lst_good_proxies_url)
+            #logging.info(f"\nAttempting download historical prices for symbol '{symbol}' from {link} using proxy {proxy_url}")
+            logging.info(f"\nAttempting download historical prices for symbol '{symbol}' from {link}")
+            try:
+                #dict_dfYahooSecurities[symbol] = pd.read_csv(link, usecols=["Date", "Adj Close"], parse_dates=True, infer_datetime_format=True)
+                # We cannot use read_csv directly, because Yahoo will block our requests if we issue too many from the same IP address, so...
+                #response = requests.get(link, proxies={"http": proxy_url, "https": proxy_url}, headers=header)
+                response = requests.get(link, headers=header)
 
-logging.info(f"\nSaving joined dataframe to table 'securities_by_date' in database 'output/team122project.sqlite3'")
-df_trading_dates.to_sql(name='securities_by_date', con=conn, if_exists='replace', index=True)
+                if response.status_code == 200:
+                    #logging.info(f"\n{response.text[:200]}")
+                    #logging.info(f"\n{response.text[-200:]}")
+                    dict_dfYahooSecurities[symbol] = pd.read_csv(io.StringIO(response.text), usecols=["Date", "Adj Close"])
+                    # Convert the Date column to the correct data type
+                    dict_dfYahooSecurities[symbol]['Date'] = pd.to_datetime(dict_dfYahooSecurities[symbol]['Date'], utc=False) #, utc=True
+                    dict_dfYahooSecurities[symbol].columns = ["Date", symbol]
+                    dict_dfYahooSecurities[symbol].set_index('Date', drop=True, inplace=True)
 
-"""
-outputfilename = f"output/database_partial_{len(dict_dfYahooSecurities.keys())}_local_currency.csv"
-logging.info(f"\nSaving joined dataframe to file: {outputfilename}")
-with open(outputfilename, "w") as filehandle:
-    #dfAllDates.to_csv(filehandle, index=True, lineterminator = '\r', encoding='utf-8-sig')
-    dfAllDates.to_csv(filehandle, index=True, lineterminator = '\n', encoding='utf-8')
-if not filehandle.closed:
-    filehandle.close()
-filehandle = None
-"""
+                    # We don't need to save to CSV since we write directly to table in SQLite3 database now
+                    """
+                    outputfilename =f"output/history_security_{symbol}.csv"
+                    with open(outputfilename, "w") as filehandle:
+                        #dict_dfYahooSecurities[symbol].to_csv(filehandle, index=False, lineterminator = '\r', encoding='utf-8-sig')
+                        dict_dfYahooSecurities[symbol].to_csv(filehandle, index=False, lineterminator = '\n', encoding='utf-8')
+                    if not filehandle.closed:
+                        filehandle.close()
+                    filehandle = None
+                    """
+                else:
+                    logging.info(f"Failed {symbol}: {response.status_code}")
+            except Exception as e:
+                logging.exception(str(e))
+                continue
+
+        logging.info("\nJoining all columns of the downloaded securities into a single dataframe")
+
+        for df in dict_dfYahooSecurities.values():
+            dfAllDates = dfAllDates.join(df)
+
+        # Find the names of the securities that we successfully retrieved from Yahoo before Yahoo started throttling its responses to our requests
+        #ser_updated = pd.Series(dfAllDates.columns.to_list()[1:], index=None, name="UpdatedSymbols")
+        list_updated_symbols = dfAllDates.columns.to_list()
+        indexes_to_update = df_Yahoo_links_good_sectors_dates_start[df_Yahoo_links_good_sectors_dates_start['Yahoo_Symbol'].isin(list_updated_symbols)].index
+        update_time = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+        # Update the dataframe with the timestamp showing it was updated just now
+        df_Yahoo_links_good_sectors_dates_start.loc[indexes_to_update, "last_update"] = update_time
+        # Actually, more importantly is to update the SQLite table that this dataframe came from, i.e. yahoo_links
+        # This is because we are no longer looping here - we will re-run this script in another hour and will operate on a smaller set of data
+        df_Yahoo_links_good_sectors_dates_start.to_sql(name='yahoo_links', con=conn, if_exists='replace', index=False)
+
+        loopThrough = df_Yahoo_links_good_sectors_dates_start[df_Yahoo_links_good_sectors_dates_start["last_update"] < time_22hours_ago].index.to_list()
+        #while_iter += 1
+
+        # Before writing out our dataframe to SQLite database, drop any rows that contain only NULL values
+        logging.info(f"Before dropping empty rows, rowcount = {dfAllDates.shape[0]}")
+        df_trading_dates = dfAllDates.drop(dfAllDates[dfAllDates.any(axis=1) == False].index, axis=0)
+        logging.info(f"After dropping empty rows, rowcount = {df_trading_dates.shape[0]}")
+
+        # Now, search for only those securities that have a timestamp older than 24 hours ago 0 these were not updated due to throttling by Yahoo API
+        #df_Yahoo_links_good_sectors_dates_remaining = pd.read_sql(f"SELECT * FROM yahoo_links WHERE last_update < '{time_22hours_ago}'", con=conn, dtype=datatypes, parse_dates=datecolumns)
+
+
+        #logging.info(f"\nSaving joined dataframe to table 'securities_by_date' in database 'output/team122project.sqlite3'")
+        # In fact, SQLite3 has a limitation of 2,000 columns so we will need to use CSV after all, or change to MySQL or PostgreSQL
+        # df_trading_dates.to_sql(name='securities_by_date', con=conn, if_exists='replace', index=True)
+
+        """"""
+        #outputfilename = f"output/database_partial_{len(dict_dfYahooSecurities.keys())}_local_currency.csv"
+        #output_datestamp = date.today().isoformat().replace('-', '')
+        output_datestamp = datetime.now().isoformat(sep=" ", timespec="seconds").replace('-', '').replace(':', '').replace(' ', '_')
+        outputfilename = f"output/database_{output_datestamp}_{len(df_trading_dates.columns)-1}.csv"
+        logging.info(f"\nSaving joined dataframe to file: {outputfilename}")
+        with open(outputfilename, "w") as filehandle:
+            #dfAllDates.to_csv(filehandle, index=True, lineterminator = '\r', encoding='utf-8-sig')
+            df_trading_dates.to_csv(filehandle, index=True, lineterminator = '\n', encoding='utf-8')
+        if not filehandle.closed:
+            filehandle.close()
+        filehandle = None
+        """"""
+        break
+
+        # Create another empty dataframe with just the index (= the series of dates)
+        dfAllDates = pd.DataFrame(index=idxDates)
+        # Rename the index
+        dfAllDates.index.name="Date"
+
+        while_iter += 1
+
+        #if len(list_updated_symbols) == 0:
+        #    break
+        break
