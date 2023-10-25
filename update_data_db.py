@@ -71,11 +71,12 @@ else:
 
 default_start_date = '2009-12-31T00:00:00' # Hard code to the day before our earliest date to be considered for this project
 try:
-    df_combined_securities = pd.read_csv(historical_ticker_data_file)
+    df_combined_securities = pd.read_csv(historical_ticker_data_file, index_col=0)
     if df_combined_securities.shape[0] < 1:
         last_update = default_start_date
     else:
-        last_update = date.fromisoformat(df_combined_securities.iloc[-1]['Date'])
+        #last_update = date.fromisoformat(df_combined_securities.iloc[-1]['Date']).isoformat()
+        last_update = date.fromisoformat(df_combined_securities.index[-1]).isoformat()
 except FileNotFoundError as e:
     logging.info(f"Error reading historical data: {str(type(e))} : {e}")
     last_update = default_start_date
