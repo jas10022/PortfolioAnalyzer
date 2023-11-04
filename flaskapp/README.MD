@@ -47,5 +47,5 @@
     "start_date": "",
     "end_date": "",
     "mode": "yearly",
-    "range_mode": "5"
+    "range_mode": ""
 }
