@@ -4,12 +4,11 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# Function to retrieve companies in the same sector get_companies_in_sector
-def get_type_investment(type_of_investment, sector):
+def get_type_capitalization(capitalization, sector):
     conn = sqlite3.connect('../output/team122project/team122project.sqlite3')
     cursor = conn.cursor()
 
-    cursor.execute('SELECT Symbol, Description, Market_Cap, last_update FROM yahoo_links WHERE (Category3 = ? and GICS_sector = ?)', (type_of_investment, sector,))
+    cursor.execute('SELECT Symbol, Description, Market_Cap, last_update FROM yahoo_links WHERE (Category3 = ? and GICS_sector = ?)', (capitalization, sector,))
     #print("fetchone", cursor.fetchone())
     #print("fetchall", cursor.fetchall())
 
@@ -19,23 +18,22 @@ def get_type_investment(type_of_investment, sector):
 
     return results
 
-@app.route('/get_different_type_investment', methods=['POST'])
-def get_different_type_investment():
+@app.route('/get_different_type_capitilization', methods=['POST'])
+def get_different_type_capitilization():
     request_data = request.get_json()
     
     sector  = request_data.get('sector')
     capitalization = request_data.get('capitalization', None)
-    type_of_investment  = request_data.get('type_of_investment')
     
     if not sector:
         return jsonify({"error": "Please provide at least one sector"}), 400
 
-    if not type_of_investment:
-        return jsonify({"error": "Please provide at least one type_of_investment"}), 400
+    if not capitalization:
+        return jsonify({"error": "Please provide at least one capitalization"}), 400
 
     result = dict()
     filter_data = dict()
-    get_data = get_type_investment(type_of_investment, sector)
+    get_data = get_type_capitalization(capitalization, sector)
     
     for ticker, company, revenue, date in get_data:
         date_format = datetime.fromisoformat(date)

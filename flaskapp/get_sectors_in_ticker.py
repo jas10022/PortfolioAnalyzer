@@ -4,7 +4,6 @@ import sqlite3
 
 app = Flask(__name__)
 
-# Function to retrieve companies in the same sector get_companies_in_sector
 def get_sectors_by_ticker(ticker):
     conn = sqlite3.connect('../output/team122project/team122project.sqlite3')
     cursor = conn.cursor()
